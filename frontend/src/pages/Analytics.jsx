@@ -39,8 +39,8 @@ function Analytics() {
       try {
         const [analyticsResponse, modelResponse] =
           await Promise.all([
-            fetch("http://127.0.0.1:8000/analytics"),
-            fetch("http://127.0.0.1:8000/model-info"),
+            fetch("https://forgesight-ai.onrender.com/analytics"),
+            fetch("https://forgesight-ai.onrender.com/model-info"),
           ]);
 
         const analyticsData =

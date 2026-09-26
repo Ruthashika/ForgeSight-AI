@@ -98,7 +98,7 @@ function Recommendations() {
 
     try {
       const response = await fetch(
-        "http://127.0.0.1:8000/predict",
+        "https://forgesight-ai.onrender.com/predict",
         {
           method: "POST",
           headers: {
