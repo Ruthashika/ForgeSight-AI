@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -11,7 +11,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = "https://forgesight-ai.onrender.com";
 
 function normalizeRecord(record) {
   const storedProbability = Number(record.failure_probability ?? 0);
@@ -36,7 +36,7 @@ function normalizeRecord(record) {
 }
 
 function formatDate(value) {
-  if (!value) return "—";
+  if (!value) return "â€”";
 
   const date = new Date(value);
 
@@ -496,3 +496,4 @@ function History() {
 }
 
 export default History;
+

@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -62,7 +62,7 @@ function Prediction() {
 
     try {
       const response = await fetch(
-        "http://127.0.0.1:8000/predict",
+        "https://forgesight-ai.onrender.com/predict",
         {
           method: "POST",
           headers: {
@@ -174,15 +174,15 @@ function Prediction() {
                   onChange={handleChange}
                 >
                   <option value="L">
-                    L — Low
+                    L â€” Low
                   </option>
 
                   <option value="M">
-                    M — Medium
+                    M â€” Medium
                   </option>
 
                   <option value="H">
-                    H — High
+                    H â€” High
                   </option>
                 </select>
 
