@@ -13,6 +13,7 @@ import {
 
 function Prediction() {
   const [formData, setFormData] = useState({
+    machine_name: "CNC Motor 01",
     machine_type: "M",
     air_temperature: 300,
     process_temperature: 310,
@@ -31,7 +32,7 @@ function Prediction() {
     setFormData((previous) => ({
       ...previous,
       [name]:
-        name === "machine_type"
+        name === "machine_type" || name === "machine_name"
           ? value
           : Number(value),
     }));
@@ -39,6 +40,7 @@ function Prediction() {
 
   const handleReset = () => {
     setFormData({
+      machine_name: "CNC Motor 01",
       machine_type: "M",
       air_temperature: 300,
       process_temperature: 310,
@@ -60,7 +62,7 @@ function Prediction() {
 
     try {
       const response = await fetch(
-        "https://forgesight-ai.onrender.com/predict",
+        "http://127.0.0.1:8000/predict",
         {
           method: "POST",
           headers: {
@@ -144,6 +146,22 @@ function Prediction() {
             </div>
 
             <div className="form-grid">
+
+              {/* MACHINE NAME */}
+              <div className="form-group">
+
+                <label>Machine Name</label>
+
+                <input
+                  type="text"
+                  name="machine_name"
+                  value={formData.machine_name}
+                  onChange={handleChange}
+                  placeholder="e.g. CNC Motor 01"
+                  required
+                />
+
+              </div>
 
               {/* MACHINE TYPE */}
               <div className="form-group">
@@ -381,7 +399,7 @@ function Prediction() {
                     </span>
 
                     <h2>
-                      Machine Health Result
+                      {result.machine_name || formData.machine_name}
                     </h2>
                   </div>
 

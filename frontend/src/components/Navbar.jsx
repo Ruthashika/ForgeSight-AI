@@ -54,6 +54,15 @@ function Navbar() {
         </NavLink>
 
         <NavLink
+          to="/history"
+          className={({ isActive }) =>
+            isActive ? "active" : ""
+          }
+        >
+          History
+        </NavLink>
+
+        <NavLink
           to="/insights"
           className={({ isActive }) =>
             isActive ? "active" : ""

@@ -10,6 +10,7 @@ import Analytics from "./pages/Analytics";
 import Insights from "./pages/Insights";
 import Recommendations from "./pages/Recommendations";
 import About from "./pages/About";
+import History from "./pages/History";
 
 import { useTheme } from "./useTheme";
 
@@ -57,6 +58,10 @@ function App() {
             <Route
               path="/analytics"
               element={<Analytics />}
+            />
+            <Route
+              path="/history"
+              element={<History />}
             />
             <Route
               path="/insights"

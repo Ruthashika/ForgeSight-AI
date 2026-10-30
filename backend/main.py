@@ -1,6 +1,8 @@
 import os
 import json
 import re
+import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 import joblib
@@ -51,6 +53,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 MODEL_PATH = BASE_DIR / "models" / "forgesight_model.pkl"
 
 DATA_PATH = BASE_DIR / "data" / "ai4i2020.csv"
+PREDICTION_DB_PATH = BASE_DIR / "data" / "prediction_history.db"
 
 PERFORMANCE_PATH = (
     BASE_DIR / "models" / "model_comparison.csv"
@@ -106,6 +109,7 @@ def ask_groq(messages):
 
 class MachineInput(BaseModel):
 
+    machine_name: str
     machine_type: str
     air_temperature: float
     process_temperature: float
@@ -119,6 +123,291 @@ class ChatMessage(BaseModel):
     message: str
     history: list = []
     mode: str = "normal"
+
+
+# ============================================================
+# PREDICTION HISTORY DATABASE
+# ============================================================
+
+def get_db_connection():
+    PREDICTION_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(PREDICTION_DB_PATH)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def initialize_prediction_database():
+    connection = get_db_connection()
+    try:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS prediction_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                machine_name TEXT NOT NULL,
+                machine_type TEXT NOT NULL,
+                air_temperature REAL NOT NULL,
+                process_temperature REAL NOT NULL,
+                rotational_speed REAL NOT NULL,
+                torque REAL NOT NULL,
+                tool_wear REAL NOT NULL,
+                prediction INTEGER NOT NULL,
+                health_status TEXT NOT NULL,
+                failure_probability REAL NOT NULL,
+                risk_level TEXT NOT NULL,
+                recommendation TEXT NOT NULL,
+                predicted_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+initialize_prediction_database()
+
+
+def save_prediction(data, prediction_result):
+    connection = get_db_connection()
+    try:
+        cursor = connection.execute(
+            """
+            INSERT INTO prediction_history (
+                machine_name, machine_type, air_temperature,
+                process_temperature, rotational_speed, torque,
+                tool_wear, prediction, health_status,
+                failure_probability, risk_level, recommendation,
+                predicted_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                data.machine_name.strip(),
+                data.machine_type,
+                data.air_temperature,
+                data.process_temperature,
+                data.rotational_speed,
+                data.torque,
+                data.tool_wear,
+                prediction_result["prediction"],
+                prediction_result["health_status"],
+                prediction_result["failure_probability"],
+                prediction_result["risk_level"],
+                prediction_result["recommendation"],
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        connection.commit()
+        return cursor.lastrowid
+    finally:
+        connection.close()
+
+
+def get_prediction_history(machine_name=None, limit=100):
+    connection = get_db_connection()
+    try:
+        if machine_name:
+            rows = connection.execute(
+                """
+                SELECT * FROM prediction_history
+                WHERE machine_name = ?
+                ORDER BY predicted_at DESC
+                LIMIT ?
+                """,
+                (machine_name.strip(), limit),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                """
+                SELECT * FROM prediction_history
+                ORDER BY predicted_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+
+        return [dict(row) for row in rows]
+    finally:
+        connection.close()
+
+
+def get_chat_history_context(message, limit=20):
+    """
+    Retrieve authoritative prediction-history data for chatbot questions.
+
+    Machine-specific history is matched case-insensitively. New records store
+    failure_probability as a raw probability from 0 to 1. Older records from
+    the previous API version stored the human-readable percentage in the same
+    database field, so legacy values greater than 1 are normalized here.
+    """
+
+    message_lower = message.lower().strip()
+
+    history_keywords = (
+        "history",
+        "historical",
+        "previous",
+        "past prediction",
+        "past predictions",
+        "latest prediction",
+        "last prediction",
+        "recent prediction",
+        "recent predictions",
+        "latest status",
+        "last status",
+        "risk trend",
+        "trend",
+        "what happened",
+        "how many predictions",
+        "prediction count",
+        "predictions made",
+    )
+
+    connection = get_db_connection()
+
+    try:
+        total_predictions = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM prediction_history"
+            ).fetchone()[0]
+        )
+
+        if total_predictions == 0:
+            return {
+                "available": False,
+                "reason": "No prediction history is currently available.",
+                "machine_name": None,
+                "record_count": 0,
+                "records": [],
+            }
+
+        machine_rows = connection.execute(
+            """
+            SELECT DISTINCT machine_name
+            FROM prediction_history
+            WHERE TRIM(machine_name) <> ''
+            """
+        ).fetchall()
+
+        machine_names = [
+            str(row[0]).strip()
+            for row in machine_rows
+            if row[0]
+        ]
+
+        # Match the longest machine name first to avoid partial-name collisions.
+        machine_names.sort(key=len, reverse=True)
+
+        matched_machine = next(
+            (
+                name
+                for name in machine_names
+                if name.lower() in message_lower
+            ),
+            None,
+        )
+
+        is_history_question = (
+            matched_machine is not None
+            or any(
+                keyword in message_lower
+                for keyword in history_keywords
+            )
+        )
+
+        # Ordinary questions do not need prediction-history data.
+        if not is_history_question:
+            return {
+                "available": False,
+                "reason": "The question does not require prediction history.",
+                "machine_name": None,
+                "record_count": 0,
+                "records": [],
+            }
+
+        def normalize_records(records):
+            normalized = []
+
+            for record in records:
+                record = dict(record)
+
+                raw_probability = float(
+                    record.get("failure_probability", 0.0)
+                )
+
+                # New records store raw probability (0 to 1).
+                # Legacy records stored the percentage (0 to 100) in this field.
+                if raw_probability > 1:
+                    probability = raw_probability / 100
+                    percentage = round(raw_probability, 2)
+                else:
+                    probability = raw_probability
+                    percentage = round(raw_probability * 100, 2)
+
+                record["failure_probability"] = round(
+                    probability,
+                    6,
+                )
+                record["failure_percentage"] = percentage
+
+                normalized.append(record)
+
+            return normalized
+
+        # ====================================================
+        # MACHINE-SPECIFIC HISTORY
+        # ====================================================
+
+        if matched_machine:
+            machine_records = get_prediction_history(
+                machine_name=matched_machine,
+                limit=limit,
+            )
+
+            normalized_records = normalize_records(
+                machine_records
+            )
+
+            return {
+                "available": True,
+                "machine_name": matched_machine,
+                "record_count": len(normalized_records),
+                "records_returned": len(normalized_records),
+                "records": normalized_records,
+            }
+
+        # ====================================================
+        # GENERAL HISTORY
+        # ====================================================
+
+        distinct_machine_count = int(
+            connection.execute(
+                """
+                SELECT COUNT(DISTINCT TRIM(machine_name))
+                FROM prediction_history
+                WHERE TRIM(machine_name) <> ''
+                """
+            ).fetchone()[0]
+        )
+
+        recent_records = get_prediction_history(
+            limit=limit
+        )
+
+        normalized_records = normalize_records(
+            recent_records
+        )
+
+        return {
+            "available": True,
+            "machine_name": None,
+            "total_predictions": total_predictions,
+            "distinct_machines": distinct_machine_count,
+            "records_returned": len(normalized_records),
+            "records": normalized_records,
+        }
+
+    finally:
+        connection.close()
 
 
 # ============================================================
@@ -829,9 +1118,11 @@ def predict_machine_failure(
                 "safe range. Continue regular monitoring."
             )
 
-        return {
+        prediction_result = {
 
             "success": True,
+
+            "machine_name": data.machine_name.strip(),
 
             "prediction": prediction,
 
@@ -844,6 +1135,46 @@ def predict_machine_failure(
 
             "recommendation":
                 recommendation,
+        }
+
+        if not data.machine_name.strip():
+            return {
+                "success": False,
+                "error": "Machine name is required.",
+            }
+
+        prediction_id = save_prediction(
+            data,
+            prediction_result,
+        )
+
+        prediction_result["prediction_id"] = prediction_id
+
+        return prediction_result
+
+    except Exception as error:
+
+        return {
+            "success": False,
+            "error": str(error),
+        }
+
+
+# ============================================================
+# PREDICTION HISTORY
+# ============================================================
+
+@app.get("/prediction-history")
+def prediction_history(machine_name: str | None = None):
+
+    try:
+        history = get_prediction_history(machine_name=machine_name)
+
+        return {
+            "success": True,
+            "machine_name": machine_name,
+            "count": len(history),
+            "history": history,
         }
 
     except Exception as error:
@@ -1131,6 +1462,7 @@ def build_prompt(
     mode,
     context,
     prediction=None,
+    history_context=None,
 ):
 
     style = {
@@ -1160,6 +1492,37 @@ def build_prompt(
         else ""
     )
 
+    history = (
+        f"""
+AUTHORITATIVE FORGESIGHT PREDICTION HISTORY
+============================================
+
+The following data comes directly from the ForgeSight prediction database.
+This data is authoritative for stored prediction-history questions.
+
+Rules for using this data:
+1. Use these database records when answering questions about stored predictions.
+2. Do not claim that a machine has no history when records are present here.
+3. Do not replace stored machine-history values with training-dataset statistics.
+4. Do not invent, infer, or fabricate historical records.
+5. For a latest/current stored prediction question, use the first record because
+   the records are ordered newest-first.
+6. failure_probability is the raw model probability from 0 to 1.
+7. failure_percentage is the human-readable percentage from 0 to 100.
+8. Historical records are different from a new live model prediction.
+9. Only perform a new live prediction when the user provides complete sensor
+   readings that can be passed to the model.
+
+DATABASE HISTORY:
+{json.dumps(history_context, indent=2)}
+
+Use stored history values exactly. If the requested historical data is not
+present in this database context, clearly say that it is not available.
+"""
+        if history_context and history_context.get("available")
+        else ""
+    )
+
     return f"""
 You are the ForgeSight Maintenance Intelligence Assistant inside ForgeSight AI.
 
@@ -1170,6 +1533,10 @@ Use conversation history for follow-ups.
 Distinguish general knowledge from ForgeSight facts.
 
 Never invent statistics, readings, history, model metrics or predictions.
+
+When PREDICTION HISTORY DATA is provided, treat it as the authoritative record of predictions stored by ForgeSight. Use it to answer questions about a machine's latest status, previous predictions, prediction count, risk changes, failure probability, recommendations, timestamps and recent activity.
+
+If the requested historical record is not included in the provided data, say that the available ForgeSight history does not contain enough information rather than guessing. Do not confuse the training dataset statistics with stored machine prediction history.
 
 Do not claim to physically inspect or definitively diagnose a machine.
 
@@ -1219,6 +1586,8 @@ def forge_chat(
             else None
         )
 
+        history_context = get_chat_history_context(message)
+
         messages = [
 
             {
@@ -1229,9 +1598,35 @@ def forge_chat(
                         data.mode,
                         context,
                         prediction,
+                        history_context,
                     ),
             }
         ]
+
+        # Add a separate database-grounding message so the LLM receives an
+        # explicit authoritative source for machine-history questions.
+        if (
+            history_context
+            and history_context.get("available")
+        ):
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "DATABASE GROUNDING INSTRUCTION:\n"
+                        "The following prediction-history data was retrieved "
+                        "directly from the ForgeSight database. It is "
+                        "authoritative for this conversation. Do not say that "
+                        "the machine has no prediction history when records are "
+                        "present. For a latest prediction question, use the "
+                        "newest record (the first record in the records list).\n\n"
+                        + json.dumps(
+                            history_context,
+                            indent=2,
+                        )
+                    ),
+                }
+            )
 
         for item in data.history[-12:]:
 
@@ -1258,10 +1653,29 @@ def forge_chat(
                         }
                     )
 
+        user_content = message
+
+        if (
+            history_context
+            and history_context.get("available")
+            and history_context.get("records")
+        ):
+            latest_record = history_context["records"][0]
+
+            user_content = (
+                f"{message}\n\n"
+                "IMPORTANT DATABASE NOTE: ForgeSight has matching stored "
+                "prediction history for this question. Use the database "
+                "records supplied in the system messages. Do not answer that "
+                "the history is unavailable. If this asks for the latest "
+                "prediction, use the newest stored record (first record)."
+                f"\nLatest stored record ID: {latest_record.get('id')}"
+            )
+
         messages.append(
             {
                 "role": "user",
-                "content": message,
+                "content": user_content,
             }
         )
 
