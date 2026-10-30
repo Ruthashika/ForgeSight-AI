@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -14,6 +14,7 @@ import {
 
 function Recommendations() {
   const [formData, setFormData] = useState({
+    machine_name: "Machine-001",
     machine_type: "M",
     air_temperature: 300,
     process_temperature: 310,
@@ -32,7 +33,7 @@ function Recommendations() {
     setFormData((previous) => ({
       ...previous,
       [name]:
-        name === "machine_type"
+        name === "machine_type" || name === "machine_name"
           ? value
           : Number(value),
     }));
@@ -190,6 +191,16 @@ function Recommendations() {
             <div className="recommendation-form-grid">
 
               <div className="recommendation-field">
+                <label>Machine Name</label>
+                <input
+                  type="text"
+                  name="machine_name"
+                  value={formData.machine_name}
+                  onChange={handleChange}
+                  placeholder="Enter machine name"
+                  required
+                />
+              </div>              <div className="recommendation-field">
                 <label>Machine Type</label>
 
                 <select
@@ -197,9 +208,9 @@ function Recommendations() {
                   value={formData.machine_type}
                   onChange={handleChange}
                 >
-                  <option value="L">L — Low</option>
-                  <option value="M">M — Medium</option>
-                  <option value="H">H — High</option>
+                  <option value="L">L â€” Low</option>
+                  <option value="M">M â€” Medium</option>
+                  <option value="H">H â€” High</option>
                 </select>
               </div>
 
@@ -493,3 +504,4 @@ function Recommendations() {
 }
 
 export default Recommendations;
+
