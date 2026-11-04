@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -208,9 +208,9 @@ function Recommendations() {
                   value={formData.machine_type}
                   onChange={handleChange}
                 >
-                  <option value="L">L â€” Low</option>
-                  <option value="M">M â€” Medium</option>
-                  <option value="H">H â€” High</option>
+                  <option value="L">L - Low</option>
+                  <option value="M">M - Medium</option>
+                  <option value="H">H - High</option>
                 </select>
               </div>
 

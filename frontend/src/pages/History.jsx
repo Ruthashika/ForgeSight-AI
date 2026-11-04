@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -36,7 +36,7 @@ function normalizeRecord(record) {
 }
 
 function formatDate(value) {
-  if (!value) return "â€”";
+  if (!value) return "-";
 
   const date = new Date(value);
 

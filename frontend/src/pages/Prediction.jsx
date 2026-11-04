@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -174,15 +174,15 @@ function Prediction() {
                   onChange={handleChange}
                 >
                   <option value="L">
-                    L â€” Low
+                    L - Low
                   </option>
 
                   <option value="M">
-                    M â€” Medium
+                    M - Medium
                   </option>
 
                   <option value="H">
-                    H â€” High
+                    H - High
                   </option>
                 </select>
 
